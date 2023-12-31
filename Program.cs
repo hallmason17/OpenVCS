@@ -51,18 +51,17 @@ app.AddCommand("commit", () =>
     {
         string fileContents = File.ReadAllText(file);
         byte[] compressedText = compressor.Compress(fileContents);
-        var origFileName = crypto.GetSha1(file.Substring(stagingDir.Length));
-        string dirName = origFileName.Substring(0, 2);
+        var origContents = crypto.GetSha1(fileContents);
+        string dirName = origContents.Substring(0, 2);
+
         if (!Directory.Exists(Path.Combine(objectsDir, dirName)))
         {
             Directory.CreateDirectory(Path.Combine(objectsDir, dirName));
         }
-        string fileName = origFileName.Substring(dirName.Length);
+
+        string fileName = origContents.Substring(dirName.Length);
         var fullPath = Path.Combine(objectsDir, dirName, fileName);
-        Console.WriteLine(fullPath);
         File.WriteAllBytes(fullPath, compressedText);
-        Console.WriteLine("");
-        Console.WriteLine(compressor.Decompress(File.ReadAllBytes(fullPath)));
     }
 });
 
