@@ -70,7 +70,7 @@ app.AddSubCommand("add", x =>
                     origFileName = fileName,
                     sha1 = fileSha,
                     fileName = fileSha == string.Empty ? string.Empty : fileSha.Substring(2, 38),
-                    fileContents = compressionService.Compress($"blob {fileSize}{fileContents}")
+                    fileContents = compressionService.Compress($"blob {fileSize.ToString()}{fileContents}")
                 };
 
                 if (fileSha != string.Empty)
