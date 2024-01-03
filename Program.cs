@@ -9,17 +9,10 @@ builder.Services.AddSingleton<ICompressionService, CompressionService>();
 
 var app = builder.Build();
 
-var crypto = new CryptographyService();
-var compressor = new CompressionService();
+var cryptoService = new CryptographyService();
+var compressionService = new CompressionService();
+var fileIOService = new FileIOService();
 var dirs = new List<string>();
-string appName = "open-vcs";
-string appDir = "." + appName;
-string currentDir = Directory.GetCurrentDirectory();
-string[] files = Directory.GetFiles(currentDir);
-string repoDir = currentDir + "/" + appDir;
-string stagingDir = repoDir + "/staging/";
-string objectsDir = repoDir + "/objects/";
-var indexDict = new Dictionary<string, byte[]>();
 
 app.AddCommand("dirs", () =>
 {
@@ -41,14 +34,14 @@ void GetSubDirs(string[] path)
 
 app.AddCommand("init", () =>
 {
-    if (!Directory.Exists(repoDir))
+    if (!Directory.Exists(Constants.repoDir))
     {
-        Directory.CreateDirectory(repoDir);
-        Directory.CreateDirectory(stagingDir);
-        Directory.CreateDirectory(objectsDir);
+        Directory.CreateDirectory(Constants.repoDir);
+        Directory.CreateDirectory(Constants.stagingDir);
+        Directory.CreateDirectory(Constants.objectsDir);
     }
 
-    Console.WriteLine(repoDir);
+    Console.WriteLine(Constants.repoDir);
 });
 
 
@@ -56,113 +49,77 @@ app.AddSubCommand("add", x =>
 {
     x.AddCommand(".", () =>
     {
+        string[] files = Directory.GetFiles(Constants.currentDir);
+        var indexDict = new Dictionary<string, string>();
+        if (File.Exists(Path.Combine(Constants.repoDir, "index")))
+        {
+            indexDict = fileIOService.ReadIndexFile();
+        }
         foreach (var file in files)
         {
-            Console.WriteLine(file);
-            File.Copy(file, Path.Combine(stagingDir, file.Substring(currentDir.Length + 1)));
-        }
-        var addedFiles = Directory.GetFiles(stagingDir);
-        if (addedFiles.Length == 0)
-        {
-            Console.WriteLine("There are no files to add.");
-            return;
-        }
-        foreach (var file in addedFiles)
-        {
-            if (!file.Substring(stagingDir.Length).Contains("tree"))
+            string fileName = file.Substring(Constants.currentDir.Length + 1);
+            long fileSize = file.Length;
+            string fileContents = File.ReadAllText(file);
+            string fileSha = cryptoService.GetSha1(fileContents);
+            if (!indexDict.ContainsKey(fileName) || indexDict[fileName] != fileSha)
             {
-                string fileContents = File.ReadAllText(file);
-                string sha1 = crypto.GetSha1(fileContents);
-
                 Blob blob = new Blob
                 {
                     filePermissions = "100644",
                     type = "blob",
-                    origFileName = file.Substring(stagingDir.Length),
-                    sha1 = sha1,
-                    fileName = sha1.Substring(2, 38),
-                    fileContents = compressor.Compress(fileContents)
+                    origFileName = fileName,
+                    sha1 = fileSha,
+                    fileName = fileSha == string.Empty ? string.Empty : fileSha.Substring(2, 38),
+                    fileContents = compressionService.Compress($"blob {fileSize}{fileContents}")
                 };
 
-                string dirName = blob.sha1.Substring(0, 2);
-
-                if (!Directory.Exists(Path.Combine(objectsDir, dirName)))
+                if (fileSha != string.Empty)
                 {
-                    Directory.CreateDirectory(Path.Combine(objectsDir, dirName));
-                }
+                    string dirName = blob.sha1.Substring(0, 2);
 
-                indexDict[blob.origFileName] = compressor.Compress(blob.sha1);
+                    if (!Directory.Exists(Path.Combine(Constants.objectsDir, dirName)))
+                    {
+                        Directory.CreateDirectory(Path.Combine(Constants.objectsDir, dirName));
+                    }
 
-                var fullPath = Path.Combine(objectsDir, dirName, blob.fileName);
+                    indexDict[blob.origFileName] = blob.sha1;
 
-                if (!File.Exists(fullPath))
-                {
-                    Console.WriteLine($"Added file: {blob.sha1}");
-                    File.WriteAllBytes(fullPath, blob.fileContents);
+                    var fullPath = Path.Combine(Constants.objectsDir, dirName, blob.fileName);
+
+                    if (!File.Exists(fullPath))
+                    {
+                        Console.WriteLine($"Added file: {blob.sha1}");
+                        File.WriteAllBytes(fullPath, blob.fileContents);
+                    }
                 }
             }
-            File.Delete(file);
         }
-        foreach (KeyValuePair<string, byte[]> kvp in indexDict)
-        {
-            byte[] stringToConvert = Encoding.UTF8.GetBytes(kvp.Key + "=");
-            byte[] bytesToWrite = new byte[stringToConvert.Length + kvp.Value.Length];
-            System.Array.Copy(stringToConvert, 0, bytesToWrite, 0, stringToConvert.Length);
-            System.Array.Copy(kvp.Value, 0, bytesToWrite, stringToConvert.Length, kvp.Value.Length);
 
-            using (FileStream fs = new FileStream(Path.Combine(repoDir, "index"), File.Exists(Path.Combine(repoDir, "index")) ? FileMode.Append : FileMode.Create))
-                fs.Write(bytesToWrite, 0, bytesToWrite.Length);
+        foreach (string key in indexDict.Keys.ToList())
+        {
+            if (!files.Contains(Path.Combine(Constants.currentDir, key)))
+            {
+                Console.WriteLine($"Removed file: {key}");
+                indexDict.Remove(key);
+            }
         }
+        fileIOService.SaveIndexFile(indexDict);
     });
 });
 
 app.AddCommand("commit", () =>
 {
-    var addedFiles = Directory.GetFiles(stagingDir);
+    var addedFiles = Directory.GetFiles(Constants.stagingDir);
     if (addedFiles.Length == 0)
     {
         Console.WriteLine("There are no changes to commit.");
         return;
     }
     var commit = new Commit();
-    var tree = new Tree(crypto, compressor);
+    var tree = new Tree(cryptoService, compressionService);
     tree.blobs = new List<Blob>();
 
-    foreach (var file in addedFiles)
-    {
-        if (!file.Substring(stagingDir.Length).Contains("tree"))
-        {
-            string fileContents = File.ReadAllText(file);
-            string sha1 = crypto.GetSha1(fileContents);
-            Blob blob = new Blob
-            {
-                filePermissions = "100644",
-                type = "blob",
-                origFileName = file.Substring(stagingDir.Length),
-                sha1 = sha1,
-                fileName = sha1.Substring(2, 38),
-                fileContents = compressor.Compress(fileContents)
-            };
-
-            string dirName = blob.sha1.Substring(0, 2);
-
-            if (!Directory.Exists(Path.Combine(objectsDir, dirName)))
-            {
-                Directory.CreateDirectory(Path.Combine(objectsDir, dirName));
-            }
-
-            var fullPath = Path.Combine(objectsDir, dirName, blob.fileName);
-
-            if (!File.Exists(fullPath))
-            {
-                Console.WriteLine($"Added file: {blob.sha1}");
-                File.WriteAllBytes(fullPath, blob.fileContents);
-            }
-            tree.blobs.Add(blob);
-        }
-        File.Delete(file);
-    }
-    tree.SaveTree(stagingDir, objectsDir);
+    tree.SaveTree(Constants.stagingDir, Constants.objectsDir);
 });
 
 app.Run();
