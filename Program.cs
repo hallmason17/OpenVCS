@@ -1,6 +1,5 @@
 ﻿using Cocona;
 using Microsoft.Extensions.DependencyInjection;
-using System.Text;
 
 var builder = CoconaApp.CreateBuilder();
 
