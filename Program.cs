@@ -133,7 +133,7 @@ app.AddCommand("add", ([Argument] string[] filesToAdd) =>
 
 app.AddCommand("commit", () =>
 {
-    var addedFiles = Directory.GetFiles(Constants.stagingDir);
+    var tree = new Tree(cryptoService, compressionService);
     if (addedFiles.Length == 0)
     {
         Console.WriteLine("There are no changes to commit.");
@@ -143,7 +143,6 @@ app.AddCommand("commit", () =>
     var tree = new Tree(cryptoService, compressionService);
     tree.blobs = new List<Blob>();
 
-    tree.SaveTree(Constants.stagingDir, Constants.objectsDir);
 });
 
 app.Run();
