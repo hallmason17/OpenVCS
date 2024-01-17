@@ -95,7 +95,7 @@ app.AddCommand("add", ([Argument] string[] filesToAdd) =>
                 origFileName = fileName,
                 sha1 = fileSha,
                 fileName = fileSha == string.Empty ? string.Empty : fileSha.Substring(2, 38),
-                fileContents = compressionService.Compress($"blob {fileSize.ToString()}{fileContents}")
+                fileContents = compressionService.Compress($"{fileContents}")
             };
 
             if (fileSha != string.Empty)
@@ -134,15 +134,29 @@ app.AddCommand("add", ([Argument] string[] filesToAdd) =>
 app.AddCommand("commit", () =>
 {
     var tree = new Tree(cryptoService, compressionService);
-    if (addedFiles.Length == 0)
+    Dictionary<string, string> index = fileIOService.ReadIndexFile();
+    var treeFileContents = new List<string>();
+    foreach (var kvp in index)
     {
-        Console.WriteLine("There are no changes to commit.");
-        return;
+        treeFileContents.Add("100644" + " blob" + kvp.Key + "/t" + kvp.Value);
     }
-    var commit = new Commit();
-    var tree = new Tree(cryptoService, compressionService);
-    tree.blobs = new List<Blob>();
+    tree.sha1 = cryptoService.GetSha1(String.Join(Environment.NewLine, treeFileContents));
+    string dirName = tree.sha1.Substring(0, 2);
+    if (!Directory.Exists(Path.Combine(Constants.objectsDir, dirName)))
+    {
+        Directory.CreateDirectory(Path.Combine(Constants.objectsDir, dirName));
+    }
+    tree.fileName = tree.sha1.Substring(1, 38);
+    tree.fileContents = compressionService.Compress(String.Join(Environment.NewLine, treeFileContents));
+    var fullPath = Path.Combine(Constants.objectsDir, dirName, tree.fileName);
 
+    if (!File.Exists(fullPath))
+    {
+        Console.WriteLine($"Added file: {tree.sha1}");
+        File.WriteAllBytes(fullPath, tree.fileContents);
+    }
+
+    var commit = new Commit();
 });
 
 app.Run();

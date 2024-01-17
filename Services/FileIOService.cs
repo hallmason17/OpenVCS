@@ -33,4 +33,17 @@ public class FileIOService : IFileIOService
         }
         return dict;
     }
+
+    public List<string> ReadIndexFileList()
+    {
+        string[] fileContents = File.ReadAllLines(Path.Combine(Constants.repoDir, "index"));
+        var returnList = new List<string>();
+        for (int i = 0; i < fileContents.Length; i++)
+        {
+            string[] line = fileContents[i].Split("=");
+            returnList.Add(line[0]);
+            returnList.Add(line[1]);
+        }
+        return returnList;
+    }
 }
